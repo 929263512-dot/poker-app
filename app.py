@@ -7,7 +7,6 @@ def get_card_library():
     ranks = 'AKQJT98765432'
     suits = 'shdc'
     suit_icons = {'s': '♠️', 'h': '♥️', 'd': '♦️', 'c': '♣️'}
-    # 生成显示用的名字 (如: A♠️) 和 内部代码 (如: As)
     display_list = []
     internal_map = {}
     for r in ranks:
@@ -46,11 +45,9 @@ def get_matrix_advice(hand_str):
         'T3 (优质)': ['88', '77', 'ATs', 'KJs', 'QJs', 'JTs', 'AJo', 'KQo'],
         'T4 (投机)': ['66', '55', 'A9s', 'A8s', 'KTs', 'QTs', 'T9s', '98s', 'J9s']
     }
-    # 格式化手牌用于匹配
     r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
     ranks_sorted = "".join(sorted([r1, r2], key=lambda x: '23456789TJQKA'.index(x), reverse=True))
     h_key = ranks_sorted + ('s' if s1 == s2 else 'o') if r1 != r2 else ranks_sorted
-    
     tier = "T5 (垃圾)"
     for name, cards in tier_map.items():
         if h_key in cards: tier = name
@@ -63,7 +60,8 @@ def get_matrix_advice(hand_str):
     return tier, matrix
 
 # ================= 3. UI 界面布局 =================
-st.set_page_config(page_title="德州智能决策终端", layout="centered")
+st.set_page_config(page_title="德州决策大师", layout="centered")
+
 st.title("🏆 德州盈利决策大师")
 
 display_names, internal_map = get_card_library()
@@ -80,16 +78,38 @@ with st.container(border=True):
 
 st.markdown("---")
 
-# --- B. 核心选择区 (点选模式) ---
-st.subheader("🎯 选择你的底牌")
-selected_hand = st.multiselect("点击选择 2 张手牌", options=display_names, max_selections=2)
-hand_codes = [internal_map[name] for name in selected_hand]
+# --- B. 纯点击选择区 (不弹键盘) ---
+# 使用 st.pills 代替 st.multiselect，彻底杜绝键盘弹出
+st.subheader("🎯 点击选择你的底牌 (限2张)")
+selected_hand = st.pills(
+    "底牌选择", 
+    options=display_names, 
+    selection_mode="multi", 
+    label_visibility="collapsed"
+)
 
-st.subheader("🌊 选择公共牌")
-# 自动过滤掉已经选为手牌的卡牌
+# 限制底牌只能选2张
+if selected_hand and len(selected_hand) > 2:
+    st.warning("⚠️ 底牌只能选 2 张，请取消多余的选择")
+    hand_codes = []
+else:
+    hand_codes = [internal_map[name] for name in selected_hand] if selected_hand else []
+
+st.subheader("🌊 点击选择公共牌 (限5张)")
+# 自动过滤掉已选的底牌
 remaining_cards = [c for c in display_names if c not in selected_hand]
-selected_board = st.multiselect("点击选择 0-5 张公共牌", options=remaining_cards, max_selections=5)
-board_codes = [internal_map[name] for name in selected_board]
+selected_board = st.pills(
+    "公共牌选择", 
+    options=remaining_cards, 
+    selection_mode="multi", 
+    label_visibility="collapsed"
+)
+
+if selected_board and len(selected_board) > 5:
+    st.warning("⚠️ 公共牌最多 5 张")
+    board_codes = []
+else:
+    board_codes = [internal_map[name] for name in selected_board] if selected_board else []
 
 st.markdown("---")
 
@@ -98,30 +118,26 @@ if st.button("⚡ 获取盈利方案", type="primary", use_container_width=True)
     if len(hand_codes) != 2:
         st.error("请先选好 2 张底牌！")
     else:
-        with st.spinner("量子计算中..."):
+        with st.spinner("正在通过 1200 次模拟计算盈利概率..."):
             equity, err = simulate_equity(hand_codes, board_codes, num_players)
             if not err:
                 res1, res2, res3 = st.columns(3)
-                res1.metric("真实胜率", f"{equity*100:.1f}%")
+                res1.metric("胜率", f"{equity*100:.1f}%")
                 odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 0
                 res2.metric("保本线", f"{odds*100:.1f}%")
                 ev = (equity * pot_size) - ((1 - equity) * call_amount)
-                res3.metric("期望盈利 (EV)", f"{ev:+.1f}")
+                res3.metric("盈利期望", f"{ev:+.1f}")
                 
                 st.markdown("---")
-                if ev > 0:
-                    st.success("✅ **盈利动作：跟注/加注。** 长期来看这是赚钱的。")
-                else:
-                    st.error("❌ **盈利动作：弃牌 (Fold)。** 当前局面不符合盈利数学。")
+                if ev > 0: st.success("✅ **盈利动作：跟注/加注。** 长期来看这是赚钱的。")
+                else: st.error("❌ **盈利动作：弃牌 (Fold)。** 数学上不划算。")
 
 st.markdown("---")
 
 # --- D. 底部参考矩阵 ---
 if len(hand_codes) == 2:
     tier, matrix = get_matrix_advice("".join(hand_codes))
-    st.subheader(f"📊 9人桌全位置策略 (牌力: {tier})")
+    st.subheader(f"📊 9人桌位置策略 (牌力: {tier})")
     for pos, adv in matrix.items():
         with st.expander(f"📍 {pos} 对策", expanded=True):
             st.write(adv)
-
-st.caption("提示：在手机上直接点击下拉框选择，比打字快 3 倍。")

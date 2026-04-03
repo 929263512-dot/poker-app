@@ -74,15 +74,17 @@ st.markdown("""
 
 st.title("🏆 德州盈利决策大师")
 
-# 2. 核心参数区 (置顶)
+# 2. 核心参数区 (置顶，幅度为10)
 with st.container(border=True):
     col_p, col_b, col_c = st.columns(3)
     with col_p:
-        num_players = st.number_input("桌面剩余人数", 2, 10, 6)
+        num_players = st.number_input("剩余人数", 2, 10, 6, step=1)
     with col_b:
-        pot_size = st.number_input("总底池 ($)", 0, 100000, 100)
+        # 幅度设为 10
+        pot_size = st.number_input("总底池 ($)", 0, 100000, 100, step=10)
     with col_c:
-        call_amount = st.number_input("需跟注 ($)", 0, 100000, 20)
+        # 幅度设为 10
+        call_amount = st.number_input("需跟注 ($)", 0, 100000, 20, step=10)
 
 st.markdown("---")
 
@@ -119,7 +121,3 @@ if len(h_cards) == 2:
     for pos, adv in matrix.items():
         with st.expander(f"📍 {pos} 对策", expanded=True):
             st.write(adv)
-
-# 位置图参考
-st.caption("实战位置参考图")
-

@@ -2,25 +2,23 @@ import streamlit as st
 from treys import Card, Evaluator, Deck
 import re
 
-# ================= 1. 工具函数：解析与显示 =================
-def parse_cards(input_str):
-    if not input_str: return []
-    s = input_str.upper().replace('10', 'T')
-    s = re.sub(r'[^2-9TJQKAHDSC]', '', s)
-    cards = re.findall(r'([2-9TJQKA][HDSC])', s)
-    return [c[0] + c[1].lower() for c in cards]
+# ================= 1. 初始化卡牌库 =================
+def get_card_library():
+    ranks = 'AKQJT98765432'
+    suits = 'shdc'
+    suit_icons = {'s': '♠️', 'h': '♥️', 'd': '♦️', 'c': '♣️'}
+    # 生成显示用的名字 (如: A♠️) 和 内部代码 (如: As)
+    display_list = []
+    internal_map = {}
+    for r in ranks:
+        for s in suits:
+            d_name = f"{r.replace('T','10')}{suit_icons[s]}"
+            i_code = f"{r}{s}"
+            display_list.append(d_name)
+            internal_map[d_name] = i_code
+    return display_list, internal_map
 
-def display_poker_icons(card_list):
-    if not card_list: return ""
-    suits_map = {'s': ('♠️', '#000000'), 'h': ('♥️', '#FF0000'), 'd': ('♦️', '#FF0000'), 'c': ('♣️', '#008000')}
-    html_str = ""
-    for c in card_list:
-        val = c[0].replace('T', '10')
-        icon, color = suits_map[c[1]]
-        html_str += f"<span style='font-size:24px; font-weight:bold; color:{color}; margin-right:10px;'>{val}{icon}</span>"
-    return html_str
-
-# ================= 2. 计算引擎：动态模拟 =================
+# ================= 2. 核心计算引擎 =================
 def simulate_equity(hand, board, num_players):
     evaluator = Evaluator()
     try:
@@ -48,9 +46,11 @@ def get_matrix_advice(hand_str):
         'T3 (优质)': ['88', '77', 'ATs', 'KJs', 'QJs', 'JTs', 'AJo', 'KQo'],
         'T4 (投机)': ['66', '55', 'A9s', 'A8s', 'KTs', 'QTs', 'T9s', '98s', 'J9s']
     }
-    h = "".join(sorted([hand_str[0], hand_str[2]], reverse=True))
-    suited = hand_str[1] == hand_str[3]
-    h_key = h + ('s' if suited else 'o') if h[0] != h[1] else h
+    # 格式化手牌用于匹配
+    r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
+    ranks_sorted = "".join(sorted([r1, r2], key=lambda x: '23456789TJQKA'.index(x), reverse=True))
+    h_key = ranks_sorted + ('s' if s1 == s2 else 'o') if r1 != r2 else ranks_sorted
+    
     tier = "T5 (垃圾)"
     for name, cards in tier_map.items():
         if h_key in cards: tier = name
@@ -63,61 +63,65 @@ def get_matrix_advice(hand_str):
     return tier, matrix
 
 # ================= 3. UI 界面布局 =================
-st.set_page_config(page_title="德州盈利终端", layout="centered")
-
-# 1. 顶部参考栏
-st.markdown("""
-<div style="background-color:#f0f2f6; padding:5px; border-radius:5px; text-align:center; font-size:12px; color:#666;">
-    s=黑桃♠️ | h=红桃♥️ | d=方块♦️ | c=梅花♣️
-</div>
-""", unsafe_allow_html=True)
-
+st.set_page_config(page_title="德州智能决策终端", layout="centered")
 st.title("🏆 德州盈利决策大师")
 
-# 2. 核心参数区 (置顶，幅度为10)
+display_names, internal_map = get_card_library()
+
+# --- A. 实战参数区 (10单位步长) ---
 with st.container(border=True):
     col_p, col_b, col_c = st.columns(3)
     with col_p:
-        num_players = st.number_input("剩余人数", 2, 10, 6, step=1)
+        num_players = st.number_input("桌面人数", 2, 10, 6, step=1)
     with col_b:
-        # 幅度设为 10
         pot_size = st.number_input("总底池 ($)", 0, 100000, 100, step=10)
     with col_c:
-        # 幅度设为 10
         call_amount = st.number_input("需跟注 ($)", 0, 100000, 20, step=10)
 
 st.markdown("---")
 
-# 3. 输入与计算区
-h_raw = st.text_input("🎯 你的底牌 (如 asad)", value="asad").lower()
-h_cards = parse_cards(h_raw)
-st.markdown(display_poker_icons(h_cards), unsafe_allow_html=True)
+# --- B. 核心选择区 (点选模式) ---
+st.subheader("🎯 选择你的底牌")
+selected_hand = st.multiselect("点击选择 2 张手牌", options=display_names, max_selections=2)
+hand_codes = [internal_map[name] for name in selected_hand]
 
-b_raw = st.text_input("🌊 公共牌 (翻后录入)", value="").lower()
-b_cards = parse_cards(b_raw)
-st.markdown(display_poker_icons(b_cards), unsafe_allow_html=True)
-
-if st.button("⚡ 获取盈利方案", type="primary", use_container_width=True):
-    if len(h_cards) == 2:
-        with st.spinner("计算中..."):
-            equity, err = simulate_equity(h_cards, b_cards, num_players)
-            if not err:
-                res1, res2, res3 = st.columns(3)
-                res1.metric("胜率", f"{equity*100:.1f}%")
-                odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 0
-                res2.metric("保本线", f"{odds*100:.1f}%")
-                ev = (equity * pot_size) - ((1 - equity) * call_amount)
-                res3.metric("期望盈利", f"{ev:+.1f}")
-                
-                if ev > 0: st.success("✅ **盈利动作：跟注/加注。** 长期来看这是赚钱的。")
-                else: st.error("❌ **盈利动作：弃牌。** 期望盈利为负，别送钱。")
+st.subheader("🌊 选择公共牌")
+# 自动过滤掉已经选为手牌的卡牌
+remaining_cards = [c for c in display_names if c not in selected_hand]
+selected_board = st.multiselect("点击选择 0-5 张公共牌", options=remaining_cards, max_selections=5)
+board_codes = [internal_map[name] for name in selected_board]
 
 st.markdown("---")
 
-# 4. 位置信息区 (置于最后面)
-if len(h_cards) == 2:
-    tier, matrix = get_matrix_advice(h_cards[0] + h_cards[1])
+# --- C. 计算与盈利方案 ---
+if st.button("⚡ 获取盈利方案", type="primary", use_container_width=True):
+    if len(hand_codes) != 2:
+        st.error("请先选好 2 张底牌！")
+    else:
+        with st.spinner("量子计算中..."):
+            equity, err = simulate_equity(hand_codes, board_codes, num_players)
+            if not err:
+                res1, res2, res3 = st.columns(3)
+                res1.metric("真实胜率", f"{equity*100:.1f}%")
+                odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 0
+                res2.metric("保本线", f"{odds*100:.1f}%")
+                ev = (equity * pot_size) - ((1 - equity) * call_amount)
+                res3.metric("期望盈利 (EV)", f"{ev:+.1f}")
+                
+                st.markdown("---")
+                if ev > 0:
+                    st.success("✅ **盈利动作：跟注/加注。** 长期来看这是赚钱的。")
+                else:
+                    st.error("❌ **盈利动作：弃牌 (Fold)。** 当前局面不符合盈利数学。")
+
+st.markdown("---")
+
+# --- D. 底部参考矩阵 ---
+if len(hand_codes) == 2:
+    tier, matrix = get_matrix_advice("".join(hand_codes))
     st.subheader(f"📊 9人桌全位置策略 (牌力: {tier})")
     for pos, adv in matrix.items():
         with st.expander(f"📍 {pos} 对策", expanded=True):
             st.write(adv)
+
+st.caption("提示：在手机上直接点击下拉框选择，比打字快 3 倍。")

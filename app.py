@@ -2,7 +2,7 @@ import streamlit as st
 from treys import Card, Evaluator, Deck
 import re
 
-# ================= 核心逻辑：智能解析与可视化 =================
+# ================= 核心工具：智能识别 =================
 
 def parse_cards(input_str):
     if not input_str: return []
@@ -13,128 +13,119 @@ def parse_cards(input_str):
 
 def display_cards(card_list):
     suits_map = {'s': '♠️', 'h': '♥️', 'd': '♦️', 'c': '♣️'}
-    visual_cards = []
-    for c in card_list:
-        val = c[0].replace('T', '10')
-        suit = suits_map[c[1]]
-        visual_cards.append(f"**{val}{suit}**")
-    return " ".join(visual_cards) if visual_cards else "等待输入..."
+    visuals = [f"**{c[0].replace('T','10')}{suits_map[c[1]]}**" for c in card_list]
+    return " ".join(visuals) if visuals else "待输入"
 
-# ================= 核心逻辑：胜率引擎 =================
+# ================= 核心引擎：多玩家胜率模拟 =================
 
-def simulate_equity(hand1_str, hand2_str, board_str, iterations=5000):
+def simulate_multi_equity(hand, board, num_players, iterations=3000):
     evaluator = Evaluator()
     try:
-        hand1 = [Card.new(c) for c in hand1_str]
-        hand2_known = len(hand2_str) == 2
-        hand2 = [Card.new(c) for c in hand2_str] if hand2_known else []
-        board = [Card.new(c) for c in board_str]
-    except Exception as e:
-        return None, None, f"卡牌解析异常，请检查输入！"
+        h1 = [Card.new(c) for c in hand]
+        b = [Card.new(c) for c in board]
+    except: return None, "格式错误"
 
-    wins1, wins2, ties = 0, 0, 0
+    wins = 0
     for _ in range(iterations):
         deck = Deck()
         try:
-            for card in hand1 + hand2 + board: deck.cards.remove(card)
-        except ValueError:
-            return None, None, "发现重复的卡牌，请检查！"
+            for card in h1 + b: deck.cards.remove(card)
+        except: return None, "重复卡牌"
 
-        sim_hand2 = hand2 if hand2_known else deck.draw(2)
-        cards_needed = 5 - len(board)
-        simulated_board = board + deck.draw(cards_needed) if cards_needed > 0 else board
+        # 为其余玩家随机发牌
+        others = [deck.draw(2) for _ in range(num_players - 1)]
+        cards_needed = 5 - len(b)
+        full_board = b + deck.draw(cards_needed) if cards_needed > 0 else b
 
-        score1 = evaluator.evaluate(simulated_board, hand1)
-        score2 = evaluator.evaluate(simulated_board, sim_hand2)
+        my_score = evaluator.evaluate(full_board, h1)
+        # 检查是否赢了所有人
+        is_winner = True
+        for other_hand in others:
+            if evaluator.evaluate(full_board, other_hand) < my_score:
+                is_winner = False
+                break
+        if is_winner: wins += 1
 
-        if score1 < score2: wins1 += 1
-        elif score2 < score1: wins2 += 1
-        else: ties += 1
+    return wins / iterations, None
 
-    total = wins1 + wins2 + ties
-    return wins1 / total, wins2 / total, None
+# ================= 战术大脑：盈利最大化算法 =================
 
-def get_pro_advice(equity, street, opp_type):
-    # 第一部分：基于数学概率的基础建议
-    advice = f"💡 **基础行动指南** (实战胜率 **{equity*100:.1f}%**)：\n\n"
-    if equity > 0.85: advice += "👑 **绝对碾压**：你在场上是霸主！尽情下注造大底池。"
-    elif equity > 0.65: advice += "🔥 **强势领跑**：优势很大，应进行**价值下注**，不给对手免费买牌的机会。"
-    elif equity > 0.35: advice += "⚖️ **势均力敌 / 听牌**：大概率在买花或买顺。根据对手下注大小算赔率决定是否跟注。"
-    else: advice += "🛑 **严重落后**：对方大概率已击中强牌。面对任何下注都应**立刻弃牌 (Fold)**。"
+def get_max_profit_strategy(equity, pot, bet, players, opp_type):
+    # 计算底池赔率 (Pot Odds)
+    # 你需要跟注的比例：跟注额 / (底池总额 + 对方下注额 + 你的跟注额)
+    call_odds = bet / (pot + bet) if (pot + bet) > 0 else 0
+    ev = (equity * pot) - ((1 - equity) * bet)
+    
+    strategy = f"### 💰 盈利最大化决策 (EV: {ev:+.1f})\n\n"
+    
+    if equity > (1 / players) * 1.5: # 显著高于平均胜率
+        if "疯子" in opp_type:
+            strategy += "🚀 **最高盈利：慢打陷阱 (Slow Play)**\n对方极具攻击性，不要急于加注，通过过牌引诱他继续诈唬下注，在河牌圈再全推（All-in）榨取最大价值。"
+        elif "跟注站" in opp_type:
+            strategy += "🚀 **最高盈利：重炮价值 (Overbet)**\n对方不会弃牌，直接下注 75% 到 120% 的底池。不要怕吓跑他，他会用任何烂对子支付你。"
+        else:
+            strategy += "🚀 **最高盈利：标准价值推注**\n建议下注 2/3 底池，保护牌力同时获取价值。"
+    
+    elif equity > call_odds: # 胜率大于赔率，长期盈利
+        strategy += "✅ **最高盈利：跟注 (Call)**\n目前的胜率支持你继续看牌。从概率学上讲，长期这样打是赚钱的。"
+    
+    else: # 负 EV
+        if equity > 0.25 and players <= 3:
+            strategy += "⚠️ **最高盈利：尝试诈唬 (Bluff)**\n单纯跟注必赔。如果对方性格偏紧，可以尝试反冲加注（3-Bet）逼迫对方弃牌，利用弃牌率获利。"
+        else:
+            strategy += "❌ **最高盈利：及时止损 (Fold)**\n这手牌长期看是赔钱的。弃牌是目前盈利最高的动作，把筹码留到下一把优势局。"
 
-    # 第二部分：基于对手类型的无情剥削对策
-    opp_advice = ""
-    if "跟注站" in opp_type:
-        opp_advice = "🐟 **【剥削对策 - 松被动/跟注站】**\n- 🎯 **死穴**：什么烂牌都爱跟，绝对不弃牌。\n- 🔪 **杀招**：**绝对不要诈唬他！** 拿到中对、顶对以上的牌，就无脑狠狠做大尺寸的价值下注（Value Bet），他会用各种底对甚至A高给你支付。"
-    elif "大紧逼" in opp_type:
-        opp_advice = "🪨 **【剥削对策 - 紧被动/老石头】**\n- 🎯 **死穴**：没有坚果牌绝不主动打钱。\n- 🔪 **杀招**：他在盲注位时，疯狂加注偷他的池！但他一旦在翻后主动下注或加注，说明他拿了天牌，除非你是绝杀，否则立刻果断弃牌，一毛钱都别多给！"
-    elif "紧凶" in opp_type:
-        opp_advice = "🦈 **【硬核对策 - 紧凶型/常客玩家】**\n- 🎯 **死穴**：打法过于标准，保护盲注意识强。\n- 🔪 **杀招**：尊重他的加注，少用边缘牌去硬碰硬。当你拿到超强牌时，多用**过牌-加注（Check-Raise）**给他设下陷阱，让他以为你在诈唬从而反咬你一口。"
-    elif "疯子" in opp_type:
-        opp_advice = "🌪️ **【降维打击 - 松凶型/疯子玩家】**\n- 🎯 **死穴**：极其爱演，把把想靠诈唬把别人打跑。\n- 🔪 **杀招**：**让他自己送死！** 稍微收紧起手牌，一旦击中顶对以上，就一直过牌（Check）装弱，引诱他用空气牌诈唬全下（All-in）。千万别被他激怒。"
-
-    if opp_advice:
-        return advice + "\n\n---\n\n" + opp_advice
-    return advice
+    return strategy
 
 # ================= 网页 UI 构建 =================
 
-st.set_page_config(page_title="德州胜率与剥削大师", layout="centered")
+st.set_page_config(page_title="德州决策终端", layout="wide")
 
-st.title("🃏 德州胜率与剥削大师")
-st.markdown("输入手牌算出胜率，选择对手性格，获取一击必杀的**剥削策略**。")
-st.markdown("---")
+st.title("📟 德州扑克实战决策终端 (极速版)")
 
-# UI 输入区
-col1, col2 = st.columns(2)
-with col1:
-    p1_raw = st.text_input("🎯 你的底牌 (如: as2s)", value="")
+# 侧边栏：全局设置
+with st.sidebar:
+    st.header("⚙️ 游戏设置")
+    num_players = st.slider("玩家人数 (含自己)", 2, 10, 6)
+    st.markdown("---")
+    pot_size = st.number_input("当前总底池 ($)", 0, 1000000, 100)
+    opp_bet = st.number_input("对方下注额 ($)", 0, 1000000, 50)
+    st.markdown("---")
+    opp_type = st.selectbox("对手性格", ["未知", "跟注站 (不弃牌)", "疯子 (乱加注)", "紧逼 (没牌不打)"])
+
+# 主界面：极速输入
+col_h, col_b = st.columns(2)
+
+with col_h:
+    st.subheader("🎯 你的底牌")
+    p1_raw = st.text_input("连打字母 (如 ak)", key="p1", placeholder="无需空格逗号")
     p1_cards = parse_cards(p1_raw)
-    st.markdown(f"**{display_cards(p1_cards)}**")
+    st.markdown(f"确认：{display_cards(p1_cards)}")
 
-with col2:
-    p2_raw = st.text_input("❓ 对手底牌 (未知请留空)", value="")
-    p2_cards = parse_cards(p2_raw)
-    st.markdown(f"**{display_cards(p2_cards)}**")
-
-board_raw = st.text_input("🌊 公共牌 (如: 4sks10h)", value="")
-board_cards = parse_cards(board_raw)
-st.markdown(f"**{display_cards(board_cards)}**")
+with col_b:
+    st.subheader("🌊 公共牌")
+    board_raw = st.text_input("连打字母 (如 4skst)", key="board")
+    board_cards = parse_cards(board_raw)
+    st.markdown(f"确认：{display_cards(board_cards)}")
 
 st.markdown("---")
-st.markdown("### 🕵️ 锁定你的对手")
-opp_type = st.selectbox(
-    "他在牌桌上是个什么样的人？",
-    ["❓ 未知对手 (提供纯概率基础建议)",
-     "🐟 松被动 / 跟注站 (玩得多，极少加注，就爱跟注)",
-     "🌪️ 松凶型 / 疯子 (玩得多，疯狂下注/满天飞诈唬)",
-     "🪨 紧被动 / 大紧逼 (只玩超强牌，等死不主动打钱)",
-     "🦈 紧凶型 / 常客 (只挑好牌打，一旦入池攻击性极强)"]
-)
 
-# 计算按钮
-if st.button("⚡ 计算胜率 & 获取针对对策", type="primary", use_container_width=True):
+if st.button("⚡ 秒出最高盈利方案", type="primary", use_container_width=True):
     if len(p1_cards) != 2:
-        st.error("❌ 你的底牌必须是 2 张！(比如打: a s 2 s)")
-    elif len(p2_cards) not in [0, 2]:
-        st.error("❌ 对手底牌必须是 2 张，或者直接清空留白！")
-    elif len(board_cards) not in [0, 3, 4, 5]:
-        st.error("❌ 公共牌只能是 0张(翻前), 3张(翻牌), 4张 或 5张！")
+        st.error("请输入 2 张底牌")
     else:
-        with st.spinner("🧠 深度推演中，正在生成剥削方案..."):
-            eq1, eq2, err = simulate_equity(p1_cards, p2_cards, board_cards)
-
-            if err:
-                st.error(f"❌ {err}")
+        with st.spinner("量子计算中..."):
+            equity, err = simulate_multi_equity(p1_cards, board_cards, num_players)
+            
+            if err: st.error(err)
             else:
-                st.success("✅ 推演完成！")
+                c1, c2 = st.columns(2)
+                c1.metric("你的真实胜率", f"{equity*100:.1f}%")
+                c2.metric("保本所需胜率", f"{(opp_bet/(pot_size+opp_bet))*100:.1f}%")
                 
-                res_col1, res_col2 = st.columns(2)
-                with res_col1:
-                    st.metric(label="🎯 你的胜率", value=f"{eq1 * 100:.1f}%")
-                with res_col2:
-                    label_text = "🌪️ 范围胜率 (未知对手)" if len(p2_cards) == 0 else "😈 对手胜率"
-                    st.metric(label=label_text, value=f"{eq2 * 100:.1f}%")
-                
-                street = "翻牌前" if len(board_cards) == 0 else "翻牌后"
-                st.info(get_pro_advice(eq1, street, opp_type))
+                st.markdown("---")
+                st.info(get_max_profit_strategy(equity, pot_size, opp_bet, num_players, opp_type))
+
+# 快速重置按钮
+if st.button("🧹 清空重置"):
+    st.rerun()

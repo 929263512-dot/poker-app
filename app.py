@@ -1,115 +1,77 @@
 import streamlit as st
-import json
+from treys import Card, Evaluator, Deck
 
-def analyze_player_stats(hand_histories, target_player):
-    total_hands = 0
-    vpip_count = 0
-    pfr_count = 0
-    aggressive_actions = 0 
-    passive_actions = 0    
+def simulate_equity(hand1_str, hand2_str, board_str=[], iterations=5000):
+    evaluator = Evaluator()
+    try:
+        hand1 = [Card.new(c) for c in hand1_str]
+        hand2 = [Card.new(c) for c in hand2_str]
+        board = [Card.new(c) for c in board_str]
+    except Exception as e:
+        return None, None, f"卡牌输入格式有误，请检查！(错误: {e})"
 
-    for hand in hand_histories:
-        if target_player in hand.get('players', []):
-            total_hands += 1
-            player_actions = hand.get('actions', {}).get(target_player, [])
-            
-            if not player_actions:
-                continue
+    wins1, wins2, ties = 0, 0, 0
 
-            if any(act in ['call', 'raise', 'bet'] for act in player_actions):
-                vpip_count += 1
-            
-            if 'raise' in player_actions: 
-                pfr_count += 1
+    for i in range(iterations):
+        deck = Deck()
+        for card in hand1 + hand2 + board:
+            try:
+                deck.cards.remove(card)
+            except ValueError:
+                return None, None, "输入了重复的卡牌，请检查！"
 
-            for act in player_actions:
-                if act in ['bet', 'raise']:
-                    aggressive_actions += 1
-                elif act == 'call':
-                    passive_actions += 1
+        cards_needed = 5 - len(board)
+        simulated_board = board + deck.draw(cards_needed) if cards_needed > 0 else board
 
-    vpip_pct = (vpip_count / total_hands) * 100 if total_hands > 0 else 0
-    pfr_pct = (pfr_count / total_hands) * 100 if total_hands > 0 else 0
-    
-    if passive_actions > 0:
-        af = aggressive_actions / passive_actions
-    else:
-        af = float('inf') if aggressive_actions > 0 else 0.0
+        score1 = evaluator.evaluate(simulated_board, hand1)
+        score2 = evaluator.evaluate(simulated_board, hand2)
 
-    diagnostics = []
-    if vpip_pct > 35:
-        diagnostics.append("VPIP 过高 (松)：打得太松，参与了太多边缘牌，建议收紧起手牌范围。")
-    if (vpip_pct - pfr_pct) > 10:
-        diagnostics.append("VPIP/PFR 差距大 (被动)：跟注太多而加注太少，容易被对手剥削，应增加主动性。")
-    if af < 1.0 and total_hands > 0:
-        diagnostics.append("AF 偏低 (跟注站)：打法过于被动，应在拿到好牌时增加价值下注的频率。")
-    if not diagnostics and total_hands > 0:
-        diagnostics.append("数据表现均衡，继续保持！")
+        if score1 < score2: wins1 += 1
+        elif score2 < score1: wins2 += 1
+        else: ties += 1
 
-    return total_hands, vpip_pct, pfr_pct, af, diagnostics
+    eq1 = (wins1 + 0.5 * ties) / iterations
+    eq2 = (wins2 + 0.5 * ties) / iterations
+    return eq1, eq2, None
 
-st.set_page_config(page_title="德州扑克数据分析看板", layout="wide")
+# ================= 网页 UI 构建 =================
 
-st.title("📈 德州扑克玩家数据分析看板")
-st.markdown("解析牌局日志，自动计算 **VPIP**, **PFR**, **AF** 并生成打法漏洞诊断。")
+st.set_page_config(page_title="实时胜率计算器", layout="centered")
+
+st.title("🃏 德州实时胜率计算器")
+st.markdown("输入底牌和桌上的公共牌，利用蒙特卡洛算法秒算赢面。")
 st.markdown("---")
 
-default_json = """[
-    {
-        "hand_id": 1,
-        "players": ["Hero", "Villain_1"],
-        "actions": {"Hero": ["raise", "bet", "fold"], "Villain_1": ["call", "call", "raise"]}
-    },
-    {
-        "hand_id": 2,
-        "players": ["Hero", "Villain_1", "Villain_2"],
-        "actions": {"Hero": ["fold"], "Villain_1": ["raise", "bet", "bet"], "Villain_2": ["call", "call", "fold"]}
-    },
-    {
-        "hand_id": 3,
-        "players": ["Hero", "Villain_2"],
-        "actions": {"Hero": ["call", "fold"], "Villain_2": ["raise", "bet"]}
-    }
-]"""
+st.info("💡 格式提示：红桃A = `Ah`, 黑桃Q = `Qs`, 方块10 = `Td`, 梅花2 = `2c`")
 
-col1, col2 = st.columns([1, 1])
-
+col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📥 导入牌局记录 (JSON 格式)")
-    user_input = st.text_area("在此粘贴你的手牌历史数据：", value=default_json, height=300)
-    
-    try:
-        hand_data = json.loads(user_input)
-        all_players = set()
-        for hand in hand_data:
-            all_players.update(hand.get('players', []))
-        all_players = list(all_players)
-    except json.JSONDecodeError:
-        st.error("JSON 格式错误，请检查输入！")
-        all_players = []
-
+    p1_input = st.text_input("你的手牌 (例如: Ah, Kh)", value="Ah, Kh")
 with col2:
-    st.subheader("⚙️ 分析设置")
-    if all_players:
-        selected_player = st.selectbox("选择要分析的玩家：", all_players)
-        
-        if st.button("🚀 生成分析报告", use_container_width=True):
-            total, vpip, pfr, af, diagnostics = analyze_player_stats(hand_data, selected_player)
-            
-            st.markdown("### 📊 核心数据")
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("总手数", total)
-            m2.metric("VPIP (主动入池)", f"{vpip:.1f}%")
-            m3.metric("PFR (翻前加注)", f"{pfr:.1f}%")
-            
-            af_display = "∞" if af == float('inf') else f"{af:.2f}"
-            m4.metric("AF (激进系数)", af_display)
-            
-            st.markdown("### 🤖 智能诊断")
-            for diag in diagnostics:
-                if "保持" in diag:
-                    st.success(diag)
-                else:
-                    st.warning(diag)
+    p2_input = st.text_input("对手手牌 (例如: Qs, Qc)", value="Qs, Qc")
+
+board_input = st.text_input("桌上公共牌 (翻牌前不填，例如填入: 2d, 5c, Jd)", value="")
+
+if st.button("⚡ 计算实时胜率", type="primary", use_container_width=True):
+    # 处理输入格式
+    p1_hand = [c.strip() for c in p1_input.split(",") if c.strip()]
+    p2_hand = [c.strip() for c in p2_input.split(",") if c.strip()]
+    board_cards = [c.strip() for c in board_input.split(",") if c.strip()]
+
+    if len(p1_hand) != 2 or len(p2_hand) != 2:
+        st.error("每位玩家必须输入确切的 2 张手牌！")
+    elif len(board_cards) not in [0, 3, 4, 5]:
+        st.error("公共牌数量必须是 0张(翻牌前), 3张(翻牌圈), 4张(转牌) 或 5张(河牌)！")
     else:
-        st.info("请在左侧输入有效的牌局数据以继续。")
+        with st.spinner("大脑飞速计算中... (模拟发牌5000次)"):
+            eq1, eq2, err = simulate_equity(p1_hand, p2_hand, board_cards, iterations=5000)
+
+            if err:
+                st.error(err)
+            else:
+                st.success("计算完成！")
+                res_col1, res_col2 = st.columns(2)
+                with res_col1:
+                    st.metric(label="✅ 你的胜率", value=f"{eq1 * 100:.2f}%")
+                with res_col2:
+                    st.metric(label="⚠️ 对手胜率", value=f"{eq2 * 100:.2f}%")

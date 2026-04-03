@@ -5,19 +5,13 @@ import re
 # ================= 核心逻辑：智能解析与可视化 =================
 
 def parse_cards(input_str):
-    """超级宽容的智能输入解析器：无视空格、逗号、大小写，支持10和T"""
     if not input_str: return []
-    # 统一变大写，把 10 替换成 T，去掉所有空格和标点
     s = input_str.upper().replace('10', 'T')
     s = re.sub(r'[^2-9TJQKAHDSC]', '', s)
-    
-    # 用正则抓取所有有效的卡牌组合 (如 AS, 2H, TD)
     cards = re.findall(r'([2-9TJQKA][HDSC])', s)
-    # 转换回 Treys 需要的标准格式 (首字母大写，花色小写，如 As)
     return [c[0] + c[1].lower() for c in cards]
 
 def display_cards(card_list):
-    """将英文代码转化为漂亮的中文扑克牌显示"""
     suits_map = {'s': '♠️', 'h': '♥️', 'd': '♦️', 'c': '♣️'}
     visual_cards = []
     for c in card_list:
@@ -42,8 +36,7 @@ def simulate_equity(hand1_str, hand2_str, board_str, iterations=5000):
     for _ in range(iterations):
         deck = Deck()
         try:
-            for card in hand1 + hand2 + board:
-                deck.cards.remove(card)
+            for card in hand1 + hand2 + board: deck.cards.remove(card)
         except ValueError:
             return None, None, "发现重复的卡牌，请检查！"
 
@@ -61,31 +54,35 @@ def simulate_equity(hand1_str, hand2_str, board_str, iterations=5000):
     total = wins1 + wins2 + ties
     return wins1 / total, wins2 / total, None
 
-def get_pro_advice(equity, street):
-    if street == "翻牌前":
-        if equity > 0.65: return "🚀 **重拳出击**：你的底牌极强，必须主动加注 (Raise) 建立底池！"
-        elif equity > 0.55: return "⚔️ **稳健入池**：牌力不错，适合跟注 (Call) 或做小额加注。"
-        elif equity > 0.45: return "🛡️ **谨慎防守**：边缘牌，只在位置好或前置位没人加注时才看牌。"
-        else: return "🗑️ **果断丢弃**：别抱幻想，立刻弃牌 (Fold)，省下记分牌。"
+def get_pro_advice(equity, street, opp_type):
+    # 第一部分：基于数学概率的基础建议
+    advice = f"💡 **基础行动指南** (实战胜率 **{equity*100:.1f}%**)：\n\n"
+    if equity > 0.85: advice += "👑 **绝对碾压**：你在场上是霸主！尽情下注造大底池。"
+    elif equity > 0.65: advice += "🔥 **强势领跑**：优势很大，应进行**价值下注**，不给对手免费买牌的机会。"
+    elif equity > 0.35: advice += "⚖️ **势均力敌 / 听牌**：大概率在买花或买顺。根据对手下注大小算赔率决定是否跟注。"
+    else: advice += "🛑 **严重落后**：对方大概率已击中强牌。面对任何下注都应**立刻弃牌 (Fold)**。"
 
-    # 翻后赔率教练
-    advice = f"💡 **行动指南** (当前实战胜率 **{equity*100:.1f}%**)：\n\n"
-    if equity > 0.85:
-        advice += "👑 **绝对碾压**：你在场上是霸主！尽情下注，甚至可以稍微示弱引诱对手诈唬你。"
-    elif equity > 0.65:
-        advice += "🔥 **强势领跑**：优势很大，应进行**价值下注** (打半个到一个底池)，不给对手免费买牌的机会。"
-    elif equity > 0.35:
-        advice += "⚖️ **势均力敌 / 强力听牌**：大概率在买花或买顺。**如果对手下注不大，可以跟注看牌**；如果对手全下，计算你的赔率是否划算。"
-    else:
-        advice += "🛑 **严重落后**：对方大概率已经击中强牌。除非你能免费看牌，否则面对任何下注都应该**立刻弃牌 (Fold)**。"
+    # 第二部分：基于对手类型的无情剥削对策
+    opp_advice = ""
+    if "跟注站" in opp_type:
+        opp_advice = "🐟 **【剥削对策 - 松被动/跟注站】**\n- 🎯 **死穴**：什么烂牌都爱跟，绝对不弃牌。\n- 🔪 **杀招**：**绝对不要诈唬他！** 拿到中对、顶对以上的牌，就无脑狠狠做大尺寸的价值下注（Value Bet），他会用各种底对甚至A高给你支付。"
+    elif "大紧逼" in opp_type:
+        opp_advice = "🪨 **【剥削对策 - 紧被动/老石头】**\n- 🎯 **死穴**：没有坚果牌绝不主动打钱。\n- 🔪 **杀招**：他在盲注位时，疯狂加注偷他的池！但他一旦在翻后主动下注或加注，说明他拿了天牌，除非你是绝杀，否则立刻果断弃牌，一毛钱都别多给！"
+    elif "紧凶" in opp_type:
+        opp_advice = "🦈 **【硬核对策 - 紧凶型/常客玩家】**\n- 🎯 **死穴**：打法过于标准，保护盲注意识强。\n- 🔪 **杀招**：尊重他的加注，少用边缘牌去硬碰硬。当你拿到超强牌时，多用**过牌-加注（Check-Raise）**给他设下陷阱，让他以为你在诈唬从而反咬你一口。"
+    elif "疯子" in opp_type:
+        opp_advice = "🌪️ **【降维打击 - 松凶型/疯子玩家】**\n- 🎯 **死穴**：极其爱演，把把想靠诈唬把别人打跑。\n- 🔪 **杀招**：**让他自己送死！** 稍微收紧起手牌，一旦击中顶对以上，就一直过牌（Check）装弱，引诱他用空气牌诈唬全下（All-in）。千万别被他激怒。"
+
+    if opp_advice:
+        return advice + "\n\n---\n\n" + opp_advice
     return advice
 
 # ================= 网页 UI 构建 =================
 
-st.set_page_config(page_title="德州胜率大师", layout="centered")
+st.set_page_config(page_title="德州胜率与剥削大师", layout="centered")
 
-st.title("🃏 德州胜率大师 (极简终极版)")
-st.markdown("不用打逗号，不分大小写！直接输入 `as2s` 或 `10hkd`，闭着眼也能算胜率。")
+st.title("🃏 德州胜率与剥削大师")
+st.markdown("输入手牌算出胜率，选择对手性格，获取一击必杀的**剥削策略**。")
 st.markdown("---")
 
 # UI 输入区
@@ -93,23 +90,30 @@ col1, col2 = st.columns(2)
 with col1:
     p1_raw = st.text_input("🎯 你的底牌 (如: as2s)", value="")
     p1_cards = parse_cards(p1_raw)
-    st.markdown(f"识别结果: {display_cards(p1_cards)}")
+    st.markdown(f"**{display_cards(p1_cards)}**")
 
 with col2:
     p2_raw = st.text_input("❓ 对手底牌 (未知请留空)", value="")
     p2_cards = parse_cards(p2_raw)
-    st.markdown(f"识别结果: {display_cards(p2_cards)}")
+    st.markdown(f"**{display_cards(p2_cards)}**")
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-board_raw = st.text_input("🌊 公共牌 (连着打, 如: 4sks10h)", value="")
+board_raw = st.text_input("🌊 公共牌 (如: 4sks10h)", value="")
 board_cards = parse_cards(board_raw)
-st.markdown(f"识别结果: {display_cards(board_cards)}")
+st.markdown(f"**{display_cards(board_cards)}**")
 
 st.markdown("---")
+st.markdown("### 🕵️ 锁定你的对手")
+opp_type = st.selectbox(
+    "他在牌桌上是个什么样的人？",
+    ["❓ 未知对手 (提供纯概率基础建议)",
+     "🐟 松被动 / 跟注站 (玩得多，极少加注，就爱跟注)",
+     "🌪️ 松凶型 / 疯子 (玩得多，疯狂下注/满天飞诈唬)",
+     "🪨 紧被动 / 大紧逼 (只玩超强牌，等死不主动打钱)",
+     "🦈 紧凶型 / 常客 (只挑好牌打，一旦入池攻击性极强)"]
+)
 
 # 计算按钮
-if st.button("⚡ 一键计算赢面", type="primary", use_container_width=True):
+if st.button("⚡ 计算胜率 & 获取针对对策", type="primary", use_container_width=True):
     if len(p1_cards) != 2:
         st.error("❌ 你的底牌必须是 2 张！(比如打: a s 2 s)")
     elif len(p2_cards) not in [0, 2]:
@@ -117,7 +121,7 @@ if st.button("⚡ 一键计算赢面", type="primary", use_container_width=True)
     elif len(board_cards) not in [0, 3, 4, 5]:
         st.error("❌ 公共牌只能是 0张(翻前), 3张(翻牌), 4张 或 5张！")
     else:
-        with st.spinner("🧠 职业选手大脑运转中 (蒙特卡洛 5000 次推演)..."):
+        with st.spinner("🧠 深度推演中，正在生成剥削方案..."):
             eq1, eq2, err = simulate_equity(p1_cards, p2_cards, board_cards)
 
             if err:
@@ -125,7 +129,6 @@ if st.button("⚡ 一键计算赢面", type="primary", use_container_width=True)
             else:
                 st.success("✅ 推演完成！")
                 
-                # 美化胜率显示
                 res_col1, res_col2 = st.columns(2)
                 with res_col1:
                     st.metric(label="🎯 你的胜率", value=f"{eq1 * 100:.1f}%")
@@ -133,6 +136,5 @@ if st.button("⚡ 一键计算赢面", type="primary", use_container_width=True)
                     label_text = "🌪️ 范围胜率 (未知对手)" if len(p2_cards) == 0 else "😈 对手胜率"
                     st.metric(label=label_text, value=f"{eq2 * 100:.1f}%")
                 
-                # 教练建议
                 street = "翻牌前" if len(board_cards) == 0 else "翻牌后"
-                st.info(get_pro_advice(eq1, street))
+                st.info(get_pro_advice(eq1, street, opp_type))

@@ -1,7 +1,5 @@
 streamlit
 treys
-easyocr
-opencv-python-headless
-numpy
+
 
 
